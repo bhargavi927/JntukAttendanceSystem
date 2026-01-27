@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
+    "canvas": "^3.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "face-api.js": "^0.22.2",
     "firebase-admin": "^12.5.0",
     "geolib": "^3.3.4",
     "morgan": "^1.10.0",

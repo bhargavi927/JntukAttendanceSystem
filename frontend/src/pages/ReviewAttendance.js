@@ -51,6 +51,7 @@ export default function ReviewAttendance() {
           branch: sub.branch,
           year: sub.year,
           sem_roman: sub.sem_roman,
+          aiAnalysis: sub.ai_analysis, // { face_consistency, attendance_pattern, risk_level }
         }));
         setCards(mapped);
         setLoading(false);
@@ -348,12 +349,42 @@ function SubmissionCard({ card, onApprove, onReject }) {
         </div>
 
         {/* Date Overlay (Bottom Left of Image) */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8 transition-opacity duration-300 group-hover:opacity-0">
           <div className="text-white text-xs font-medium flex items-center gap-1.5">
             <i className="bi bi-calendar3 opacity-80"></i>
             {card.date} <span className="opacity-60">|</span> {card.time}
           </div>
         </div>
+
+        {/* LAYER 2: AI REVIEW UI (HOVER OVERLAY) */}
+        {card.aiAnalysis && (
+          <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col items-center justify-center p-4 text-center z-10">
+            <div className="text-emerald-400 text-xs font-bold tracking-wider uppercase mb-2">AI Analysis</div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-left w-full max-w-[200px] mb-3">
+              <div className="text-slate-400 text-xs">consistency</div>
+              <div className="text-white text-xs font-bold text-right">{card.aiAnalysis.face_consistency}%</div>
+
+              <div className="text-slate-400 text-xs">pattern</div>
+              <div className="text-white text-xs font-bold text-right">{card.aiAnalysis.attendance_pattern}</div>
+
+              <div className="text-slate-400 text-xs">risk level</div>
+              <div className={`text-xs font-bold text-right px-2 py-0.5 rounded ${card.aiAnalysis.risk_level === 'High' ? 'bg-red-500/20 text-red-400' :
+                  card.aiAnalysis.risk_level === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                    'bg-emerald-500/20 text-emerald-400'
+                }`}>
+                {card.aiAnalysis.risk_level}
+              </div>
+            </div>
+
+            <div className="h-px w-16 bg-slate-700 mb-3"></div>
+
+            <p className="text-[10px] text-slate-400 leading-relaxed px-2">
+              <i className="bi bi-info-circle me-1"></i>
+              Manual verification recommended. AI logic is advisory only.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Details "Box" - Bottom */}

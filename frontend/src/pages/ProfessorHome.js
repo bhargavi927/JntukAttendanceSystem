@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ProfHeaderNav from '../components/ProfHeaderNav';
+import SupportBot from '../components/SupportBot';
 import professorMainImage from '../jntukimages/professormainimage.png';
 import jntukLogo from '../jntukimages/jntuk-logo.png';
 const BRAND = {
@@ -388,6 +389,7 @@ export default function ProfessorHome() {
         <HowItWorks />
         <CtaBanner />
         <Footer />
+        <SupportBot />
       </main>
     </div>
   );
