@@ -19,6 +19,11 @@ async function start() {
   initializeSupabase();
   console.log('[index.js] Supabase initialized');
 
+  // Import and Load Face API Models
+  console.log('[index.js] Loading Face Verification Models...');
+  const { loadFaceModels } = await import('./services/faceService.js');
+  await loadFaceModels();
+
   // Import Firebase admin to trigger initialization
   console.log('[index.js] Initializing Firebase Admin...');
   const admin = await import('./config/firebaseAdmin.js');
@@ -50,12 +55,12 @@ async function start() {
   console.log('[index.js] Importing routes...');
   const { default: professorProfileRoutes } = await import('./routes/professorProfile.js');
   const { default: studentProfileRoutes } = await import('./routes/studentProfile.js');
-  const { default: attendancePermissionsRoutes } = await import('./routes/attendancePermissionsFixed.js');
+  const { default: attendancePermissionsRoutes } = await import('./routes/attendancePermissions.js');
   const { default: attendanceSubmissionsRoutes } = await import('./routes/attendanceSubmissions.js');
   const { default: timetableRoutes } = await import('./routes/timetable.js');
   const { default: lmsDriveFolderRoutes } = await import('./routes/lmsDriveFolder.js');
-  const { default: lmsSubjectRoutes } = await import('./routes/lmsSubjectRoutes.js');
-  const { default: chatRoutes } = await import('./routes/chatRoutes.js');
+  const { default: lmsSubjectRoutes } = await import('./routes/lmsSubject.js');
+  const { default: chatRoutes } = await import('./routes/chat.js');
   const { default: attendancePredictionRoutes } = await import('./routes/attendancePrediction.js');
   console.log('[index.js] Routes imported');
 

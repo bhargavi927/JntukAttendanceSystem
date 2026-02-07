@@ -14,7 +14,7 @@ import './App.css';
 const StudHome = React.lazy(() => import('./pages/StudHome'));
 const StudProfilePage = React.lazy(() => import('./pages/StudProfilePage'));
 const StudUploadAttendence = React.lazy(() => import('./pages/StudUploadAttendence'));
-const StudAttendanceRegisterDetailss = React.lazy(() => import('./pages/StudAttendanceRegisterDetailss'));
+const StudAttendanceRegisterDetails = React.lazy(() => import('./pages/StudAttendanceRegisterDetails'));
 const StudAttendanceRegister = React.lazy(() => import('./pages/StudAttendanceRegister'));
 const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
 const StudLMSFiles = React.lazy(() => import('./pages/StudLMSFiles'));
@@ -88,7 +88,7 @@ function App() {
               path="/attendance/check"
               element={
                 <RequireVerifiedStudent>
-                  <StudAttendanceRegisterDetailss />
+                  <StudAttendanceRegisterDetails />
                 </RequireVerifiedStudent>
               }
             />

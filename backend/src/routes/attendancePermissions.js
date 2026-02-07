@@ -5,19 +5,9 @@ import { authenticate } from '../middleware/auth.js';
 const router = Router();
 const table = 'professor_attendance_permissions';
 const professorProfileTable = 'professor_profiles';
-const timetableTable = 'timetable_entries';
 
-// Normalize subject for case-insensitive equality
+// Normalize subject for case-insensitive comparison
 const normalizeSubject = (s) => (s || '').trim().toLowerCase();
-
-const validateDuration = (start, end) => {
-  const [startH, startM] = (start || '').split(':').map(Number);
-  const [endH, endM] = (end || '').split(':').map(Number);
-  const startMinutes = startH * 60 + startM;
-  const endMinutes = endH * 60 + endM;
-  const durationMinutes = endMinutes - startMinutes;
-  return { durationMinutes, startMinutes, endMinutes };
-};
 
 async function ensureProfessor(supabase, uid) {
   const { data, error } = await supabase
@@ -28,29 +18,6 @@ async function ensureProfessor(supabase, uid) {
 
   if (error && error.code !== 'PGRST116') throw error;
   return data?.role === 'professor';
-}
-
-async function findActivePermission({ supabase, subject, date, time, professorId }) {
-  const cleanSubject = typeof subject === 'string' ? subject.trim() : subject;
-  const cleanTime = typeof time === 'string' ? time.slice(0, 5) : time; // HH:MM
-  const normalizedInput = normalizeSubject(cleanSubject);
-
-  let query = supabase
-    .from(table)
-    .select('*')
-    .eq('date', date)
-    .eq('status', 'Active')
-    .lte('start_time', cleanTime)
-    .gte('end_time', cleanTime);
-
-  if (professorId) {
-    query = query.eq('professor_id', professorId);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  return (data || []).find((perm) => normalizeSubject(perm.subject) === normalizedInput) || null;
 }
 
 router.use(authenticate);
@@ -85,71 +52,23 @@ router.post('/', async (req, res) => {
     const isProf = await ensureProfessor(supabase, uid);
     if (!isProf) return res.status(403).json({ error: 'Forbidden' });
 
-    const {
-      timetable_entry_id,
-      subject,
-      day,
-      date,
-      start_time,
-      end_time,
-      status,
-      locationRequired = true,
-      latitude,
-      longitude,
-      radius_meters,
-    } = req.body || {};
-
-    let resolvedSubject = typeof subject === 'string' ? subject.trim() : '';
-    let resolvedStart = start_time;
-    let resolvedEnd = end_time;
-    let resolvedDay = typeof day === 'string' ? day.trim() : undefined;
-    let resolvedTimetableId = null;
-
-    if (timetable_entry_id) {
-      const { data: entry, error: entryErr } = await supabase
-        .from(timetableTable)
-        .select('id, subject, day, start_time, end_time')
-        .eq('id', timetable_entry_id)
-        .single();
-      if (entryErr) throw entryErr;
-      resolvedTimetableId = entry?.id || null;
-      if (!resolvedSubject) resolvedSubject = entry?.subject || '';
-      if (!resolvedDay) resolvedDay = entry?.day;
-      if (!resolvedStart) resolvedStart = entry?.start_time;
-      if (!resolvedEnd) resolvedEnd = entry?.end_time;
-    }
-
-    if (!resolvedSubject || !date || !resolvedStart || !resolvedEnd) {
+    const { subject, date, start_time, end_time, status = 'Active', locationRequired = true } = req.body || {};
+    const cleanSubject = typeof subject === 'string' ? subject.trim() : '';
+    if (!cleanSubject || !date || !start_time || !end_time) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const { durationMinutes } = validateDuration(resolvedStart, resolvedEnd);
-    if (durationMinutes < 5 || durationMinutes > 20) {
-      return res.status(400).json({ error: 'Permission window must be between 5 and 20 minutes.' });
-    }
-
-    const payload = {
-      professor_id: uid,
-      timetable_entry_id: resolvedTimetableId,
-      subject: resolvedSubject,
-      date,
-      start_time: resolvedStart,
-      end_time: resolvedEnd,
-      status,
-      location_required: Boolean(locationRequired),
-      latitude,
-      longitude,
-      location_required: Boolean(locationRequired),
-      latitude,
-      longitude,
-      radius_meters: radius_meters || 150,
-      session_hours: req.body.session_hours || 1,
-    };
-    if (resolvedDay) payload.day = resolvedDay;
-
     const { data, error } = await supabase
       .from(table)
-      .insert(payload)
+      .insert({
+        professor_id: uid,
+        subject: cleanSubject,
+        date,
+        start_time,
+        end_time,
+        status,
+        location_required: Boolean(locationRequired),
+      })
       .select()
       .single();
     if (error) throw error;
@@ -180,14 +99,6 @@ router.patch('/:id', async (req, res) => {
     if (end_time) payload.end_time = end_time;
     if (status && ['Active', 'Inactive'].includes(status)) payload.status = status;
     if (typeof locationRequired === 'boolean') payload.location_required = locationRequired;
-
-    // If both start_time and end_time are being updated, validate duration
-    if (start_time && end_time) {
-      const { durationMinutes } = validateDuration(start_time, end_time);
-      if (durationMinutes < 5 || durationMinutes > 20) {
-        return res.status(400).json({ error: 'Permission window must be between 5 and 20 minutes.' });
-      }
-    }
 
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -261,25 +172,97 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
-// VALIDATE endpoint with case-insensitive exact subject matching
+// VALIDATE endpoint with case-insensitive exact subject matching AND Context Validation
 router.get('/validate', async (req, res) => {
   try {
     const supabase = getSupabase();
-    const { subject, date, time, professor_id } = req.query;
+    const { subject, date, time, professor_id, program, branch, year, sem_roman } = req.query;
+
     if (!subject || !date || !time) {
       return res.status(400).json({ allowed: false, reason: 'Missing subject/date/time' });
     }
 
-    const permission = await findActivePermission({
-      supabase,
-      subject,
-      date,
-      time,
-      professorId: professor_id,
-    });
+    const cleanSubject = typeof subject === 'string' ? subject.trim() : subject;
+    const cleanTime = typeof time === 'string' ? time.slice(0, 5) : time; // HH:MM only
+    const normalizedInputSubject = normalizeSubject(cleanSubject);
+
+    // 1. Check if Permission exists (Generic check)
+    let query = supabase
+      .from(table)
+      .select('*')
+      .eq('date', date)
+      .eq('status', 'Active')
+      .lte('start_time', cleanTime)
+      .gte('end_time', cleanTime);
+
+    if (professor_id) {
+      query = query.eq('professor_id', professor_id);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const permission = Array.isArray(data) && data.length > 0
+      ? data.find(p => normalizeSubject(p.subject) === normalizedInputSubject)
+      : null;
 
     if (!permission) {
       return res.json({ allowed: false, reason: 'Permission not active for this class.' });
+    }
+
+    // 2. CONTEXT VALIDATION (Prevent BTech/MTech mix-up)
+    // If context params are provided, verify the student actually has this class in their timetable.
+    if (program && branch && year && sem_roman) {
+      const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'long' });
+
+      // Normalize inputs for timetable query
+      const normalize = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const normBranch = normalize(branch);
+
+      let branchCandidates = [normBranch];
+      if (normBranch.includes('(')) {
+        const parts = normBranch.split('(');
+        const base = parts[0].trim();
+        const rest = parts.slice(1).join('(').trim();
+        branchCandidates = [`${base}(${rest}`, `${base} (${rest}`];
+      }
+      // Add current raw just in case
+      branchCandidates.push(branch);
+      branchCandidates = [...new Set(branchCandidates)];
+
+      let programCandidates = [program];
+      const pClean = normalize(program).replace(/\./g, '');
+      if (pClean.toLowerCase() === 'btech') programCandidates = ['BTech', 'B.Tech', 'Btech'];
+      if (pClean.toLowerCase() === 'mtech') programCandidates = ['MTech', 'M.Tech', 'Mtech'];
+
+      // Query Timetable
+      const { data: ttData, error: ttError } = await supabase
+        .from('timetable_entries')
+        .select('*')
+        .in('program', programCandidates)
+        .in('branch', branchCandidates)
+        .eq('year', parseInt(year))
+        .eq('sem_roman', sem_roman)
+        .eq('day', dayName)
+        // Fuzzy subject match or exact? use normalized comparison
+        .ilike('subject', subject); // Simple check on subject name
+
+      if (ttError) {
+        console.error('Timetable validation error:', ttError);
+        // Fail open or closed? Closed for safety, but if DB error... 
+        // Let's assume allowed if DB check fails, to avoid blocking legit users on glitch? 
+        // No, requirement is strict "NEVER fetch by subject alone".
+        // If we can't verify, we should probably warn or block. 
+        // But strict block might be annoying. Let's block.
+        return res.json({ allowed: false, reason: 'Unable to verify class context.' });
+      }
+
+      const validContext = ttData && ttData.length > 0;
+
+      if (!validContext) {
+        console.log('[Validate] Context Mismatch:', { program, branch, year, sem_roman, dayName, subject });
+        return res.json({ allowed: false, reason: `This class is not in the timetable for ${program} ${branch}.` });
+      }
     }
 
     return res.json({ allowed: true, permissionId: permission.id, permission });

@@ -2,8 +2,7 @@
 import { Router } from 'express';
 import getSupabase from '../config/supabaseClient.js';
 import { authenticate } from '../middleware/auth.js';
-import { calculateRuleBasedPrediction, aggregatePredictions } from '../utils/attendancePredictor.js';
-import { getMLPrediction } from '../utils/mlAdapter.js';
+import { calculateAdvancedPrediction, aggregatePredictions } from '../utils/attendancePredictor.js';
 
 const router = Router();
 
@@ -176,59 +175,22 @@ router.get('/prediction', authenticate, async (req, res) => {
             };
         });
 
-        // 5. Run Rule-Based
-        const ruleResults = subjectData.map(d => calculateRuleBasedPrediction(d));
+        // 5. Run Prediction Logic (Replaces both Rule-Based and ML)
+        const predictionResults = subjectData.map(d => calculateAdvancedPrediction(d));
 
-        // 6. Run ML (Batch)
-        // Pass relevant fields: pct, held, missed, weeklyClasses, weeksRemaining
-        const mlInput = ruleResults.map(r => ({
-            subject: r.subject,
-            pct: r.pct,
-            held: r.held,
-            missed: r.held - r.attended,
-            weeklyClasses: r.weeklyClasses,
-            weeksRemaining: r.weeksRemaining
-        }));
+        // 6. Overall Risk
+        const overallRisk = aggregatePredictions(predictionResults);
 
-        const mlPredictions = await getMLPrediction(mlInput);
-
-        // 7. Merge Results
-        const subjects = ruleResults.map((r, index) => {
-            const mlP = mlPredictions ? mlPredictions.find(m => m.subject === r.subject) : null;
-
-            // Fallback if ML failed
-            const mlRisk = mlP ? mlP.riskLevel : r.rule.risk;
-            const mlProb = mlP ? mlP.probability : null;
-
-            return {
-                ...r,
-                ml: {
-                    risk: mlRisk,
-                    prob: mlProb,
-                    usedFallback: !mlP
-                }
-            };
-        });
-
-        // 8. Overall Risk
-        const overallRuleRisk = aggregatePredictions(subjects);
-        // ML overall? average prob or max risk
-        const mlRisks = subjects.map(s => s.ml.risk);
-        let overallMlRisk = 'Low';
-        if (mlRisks.includes('High')) overallMlRisk = 'High';
-        else if (mlRisks.includes('Medium')) overallMlRisk = 'Medium';
-
-        // ML Prob (Average)
-        const validProbs = subjects.filter(s => s.ml.prob !== null).map(s => s.ml.prob);
-        const avgProb = validProbs.length ? (validProbs.reduce((a, b) => a + b, 0) / validProbs.length) : null;
+        // Calculate average probability
+        const probSum = predictionResults.reduce((sum, p) => sum + p.probability, 0);
+        const avgProb = predictionResults.length > 0 ? probSum / predictionResults.length : 0;
 
         res.json({
             overall: {
-                ruleRisk: overallRuleRisk,
-                mlRisk: overallMlRisk,
-                mlProb: avgProb
+                risk: overallRisk, // Unified risk
+                prob: avgProb
             },
-            subjects
+            subjects: predictionResults
         });
 
     } catch (err) {

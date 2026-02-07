@@ -3,7 +3,7 @@ import multer from 'multer';
 import { getDistance } from 'geolib';
 import getSupabase from '../config/supabaseClient.js';
 import { authenticate } from '../middleware/auth.js';
-import { verifyFace } from '../services/aiService.js'; // Import AI Service
+import { verifyFace } from '../services/faceService.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -169,10 +169,57 @@ router.post('/', authenticate, upload.single('file'), async (req, res) => {
       }
     }
 
-    // --- CLIENT-SIDE AI VERIFICATION HANDLING ---
-    // (Removed as per user request to strip facial detection)
-    let aiAnalysis = null;
-    // ----------------------------
+    // --- SERVER-SIDE FACE VERIFICATION ---
+    let aiAnalysis = {
+      verified: false,
+      score: 0,
+      details: 'Not verified'
+    };
+
+    console.log('[Attendance] Starting Face Verification for student:', uid);
+
+    // 1. Get Profile Photo URL/Path
+    const profilePhoto = await getStudentProfilePhoto(supabase, uid);
+
+    if (profilePhoto && profilePhoto.path) {
+      // Generate Signed URL for Profile Photo to pass to Face Service
+      const { data: profileSigned } = await supabase.storage
+        .from(profilePhoto.bucket)
+        .createSignedUrl(profilePhoto.path, 60 * 5); // 5 mins
+
+      if (profileSigned && profileSigned.signedUrl) {
+        // 2. Run Verification
+        // req.file.buffer is the probe image
+        const verificationResult = await verifyFace(profileSigned.signedUrl, req.file.buffer);
+
+        console.log('[Attendance] Verification Result:', verificationResult);
+
+        aiAnalysis = {
+          verified: verificationResult.match,
+          score: verificationResult.score,
+          distance: verificationResult.distance,
+          details: verificationResult.match ? 'Face Verified' : (verificationResult.error || 'Face Mismatch')
+        };
+
+        // 3. Advisory Only - No Auto-Accept
+        // We just flag the risk level for the professor
+        if (verificationResult.match) {
+          console.log('[Attendance] Face Verified. Flagging as Low Risk.');
+        } else {
+          console.log('[Attendance] Face mismatch or error. Flagging as High Risk.');
+        }
+
+      } else {
+        console.warn('[Attendance] Could not sign profile photo URL. Skipping verification.');
+        aiAnalysis.details = 'Profile photo inaccessible';
+      }
+    } else {
+      console.warn('[Attendance] No profile photo found for student. Skipping verification.');
+      aiAnalysis.details = 'Profile photo missing';
+    }
+
+    // Calculate Risk Level for DB Column
+    const riskLevel = aiAnalysis.verified ? 'Low' : 'High';
     // ----------------------------
 
     // Upload photo to storage
@@ -214,11 +261,12 @@ router.post('/', authenticate, upload.single('file'), async (req, res) => {
         sem_roman: sem_roman || null,
         photo_bucket: BUCKET,
         photo_path: photoPath,
-        status: 'Pending', // Default status
+        status: 'Pending', // ALWAYS Pending as per user request
+        risk_level: riskLevel, // Store the Risk Level
         latitude: req.body.latitude ? parseFloat(req.body.latitude) : null,
         longitude: req.body.longitude ? parseFloat(req.body.longitude) : null,
         attendance_value: permission.session_hours || 1,
-        ai_analysis: aiAnalysis // Store the real Analysis
+        ai_analysis: aiAnalysis // Store the detailed Analysis
       })
       .select()
       .single();
@@ -237,7 +285,8 @@ router.post('/', authenticate, upload.single('file'), async (req, res) => {
     return res.status(201).json({
       submission: {
         ...submission,
-        photo_url: photoUrl
+        photo_url: photoUrl,
+        verification: aiAnalysis // Return verification result to client
       }
     });
   } catch (err) {
