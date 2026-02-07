@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import StudentFooter from '../components/StudentFooter';
 import { fetchStudentProfile } from '../utils/fetchStudentProfile';
 import { supabase } from '../supabase.js';
 
@@ -83,7 +82,8 @@ export default function AttendenceCheck() {
   }
 
   // ✅ DB CHECK in your CSV table
-  async function contextExists({ program, branch, year, sem_roman }) {
+  // eslint-disable-next-line no-unused-vars
+  async function _contextExists({ program, branch, year, sem_roman }) {
     const { count, error: qErr } = await supabase
       .from('lms_subject_folders')
       .select('*', { head: true, count: 'exact' })

@@ -169,69 +169,10 @@ router.post('/', authenticate, upload.single('file'), async (req, res) => {
       }
     }
 
-    // --- REAL AI VERIFICATION ---
-    let aiAnalysis = {
-      face_consistency: 0,
-      attendance_pattern: 'No Profile Photo',
-      risk_level: 'High'
-    };
-
-    try {
-      // 1. Get Reference Photo (Profile Pic)
-      const profileInfo = await getStudentProfilePhoto(supabase, uid);
-
-      if (profileInfo && profileInfo.path) {
-        // Download profile image buffer
-        const { data: profileBuffer, error: downloadErr } = await supabase.storage
-          .from(profileInfo.bucket)
-          .download(profileInfo.path);
-
-        if (!downloadErr && profileBuffer) {
-          // 2. Convert raw Blob/Buffer to arrayBuffer if needed, node-fetch usually returns Buffer
-          // supabase-js download returns a Blob in browser, but buffer in node? 
-          // Using .download() in node environment returns a Blob? No, it returns a Blob-like object.
-          // We need an ArrayBuffer or Buffer for canvas.
-
-          const refBuffer = Buffer.from(await profileBuffer.arrayBuffer());
-
-          // 3. Run AI Verification
-          console.log(`[AI] Verifying face for ${uid}...`);
-          const result = await verifyFace(refBuffer, req.file.buffer);
-
-          if (result.error) {
-            console.warn(`[AI] Verification error: ${result.error}`);
-            aiAnalysis = {
-              face_consistency: 0,
-              attendance_pattern: 'Error',
-              risk_level: 'High',
-              details: result.error
-            };
-          } else {
-            console.log(`[AI] Verification result: Match=${result.match}, Score=${result.score}`);
-
-            let pattern = 'Normal';
-            if (result.score < 50) pattern = 'Inconsistent';
-            else if (result.score < 80) pattern = 'Slight Variation';
-
-            let risk = 'Low';
-            if (!result.match || result.score < 50) risk = 'High';
-            else if (result.score < 75) risk = 'Medium';
-
-            aiAnalysis = {
-              face_consistency: result.score,
-              attendance_pattern: pattern,
-              risk_level: risk
-            };
-          }
-        } else {
-          console.warn('[AI] Could not download profile photo for comparison.');
-        }
-      } else {
-        console.log('[AI] No profile photo found for student.');
-      }
-    } catch (aiErr) {
-      console.error('[AI] Unexpected error during verification:', aiErr);
-    }
+    // --- CLIENT-SIDE AI VERIFICATION HANDLING ---
+    // (Removed as per user request to strip facial detection)
+    let aiAnalysis = null;
+    // ----------------------------
     // ----------------------------
 
     // Upload photo to storage
@@ -347,7 +288,7 @@ router.get('/', authenticate, async (req, res) => {
         // Use DB Analysis if available, else mock it
         let analysis = sub.ai_analysis;
 
-        if (!analysis || !analysis.face_consistency) {
+        if (!analysis || typeof analysis.face_consistency === 'undefined') {
           // --- FALLBACK MOCK for old data ---
           const consistency = Math.floor(Math.random() * (99 - 72 + 1)) + 72; // 72-99%
           const rand = Math.random();

@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useContext } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { AuthContext } from '../contexts/AuthContext';
+import { BACKEND_URL } from '../config';
 
 const BRAND = {
     primary: '#0F9D78', // Emerald green from StudHome
@@ -12,25 +14,11 @@ const BRAND = {
 
 const BOT_NAME = "Campus Assistant";
 
-// Role-based command options
-const COMMANDS_STUDENT = [
-    { label: "Check Attendance", value: "How is my attendance?" },
-    { label: "LMS Materials", value: "Where are my LMS notes?" },
-    { label: "Exam Updates", value: "Any exam updates?" },
-    { label: "Contact Support", value: "Contact support" }
-];
-
-const COMMANDS_PROFESSOR = [
-    { label: "Review Attendance", value: "Review student attendance" },
-    { label: "Manage Permissions", value: "Manage attendance permissions" },
-    { label: "Upload Material", value: "Upload lecture materials" },
-    { label: "Attendance Register", value: "View attendance register" }
-];
-
 export default function SupportBot() {
     const [isOpen, setIsOpen] = useState(false);
     const location = useLocation();
     const navigate = useNavigate();
+    const { user } = useContext(AuthContext);
     const isProfessor = location.pathname.includes('/professor');
 
     const [messages, setMessages] = useState([
@@ -64,59 +52,7 @@ export default function SupportBot() {
         scrollToBottom();
     }, [messages, isOpen]);
 
-    const generateBotResponse = (userInput) => {
-        const lowerInput = userInput.trim().toLowerCase();
-        let responseText = "";
-        let options = [];
-
-        const currentCommands = isProfessor ? COMMANDS_PROFESSOR : COMMANDS_STUDENT;
-        const menuOption = [{ label: "Back to Menu", value: "/start" }];
-
-        if (lowerInput === '/start' || lowerInput === 'help') {
-            responseText = `Here are the available actions for ${isProfessor ? 'Professors' : 'Students'}:`;
-            options = currentCommands;
-        }
-
-        // --- PROFESSOR COMMANDS ---
-        else if (isProfessor && (lowerInput.includes('review') || lowerInput.includes('check pending'))) {
-            responseText = "You can review pending student submissions in the 'Review Attendance' page.";
-            options = [{ label: "Go to Review", value: "NAV:/professor/review-attendance" }, ...menuOption];
-        } else if (isProfessor && (lowerInput.includes('permission') || lowerInput.includes('open attendance'))) {
-            responseText = "You can set attendance windows and locations in 'Manage Permissions'.";
-            options = [{ label: "Go to Permissions", value: "NAV:/professor/permissions" }, ...menuOption];
-        } else if (isProfessor && (lowerInput.includes('upload') || lowerInput.includes('material'))) {
-            responseText = "Upload your lecture notes, PPTs, and resources in the 'Lecture Materials' section.";
-            options = [{ label: "Go to Uploads", value: "NAV:/professor/lecture-materials" }, ...menuOption];
-        } else if (isProfessor && (lowerInput.includes('register') || lowerInput.includes('record'))) {
-            responseText = "View the consolidated attendance records in the 'Attendance Register'.";
-            options = [{ label: "Go to Register", value: "NAV:/professor/attendance-register" }, ...menuOption];
-        }
-
-        // --- STUDENT COMMANDS ---
-        else if (!isProfessor && lowerInput.includes('attendance')) {
-            responseText = "Your attendance summary is available on your Dashboard. Keep it above 75%!";
-            options = menuOption;
-        } else if (!isProfessor && (lowerInput.includes('lms') || lowerInput.includes('notes'))) {
-            responseText = "LMS materials are found under the 'LMS' tab. Files are organized by your academic year and branch.";
-            options = menuOption;
-        } else if (!isProfessor && lowerInput.includes('exam')) {
-            responseText = "Check the 'Notices' section for the latest exam schedules and circulars.";
-            options = menuOption;
-        } else if (lowerInput.includes('contact') || lowerInput.includes('support')) {
-            responseText = "You can reach the administration at admin@college.edu or visit Block A, Room 101.";
-            options = menuOption;
-        }
-
-        // --- FALLBACK ---
-        else {
-            responseText = "I'm not sure about that. Try one of the options below.";
-            options = currentCommands;
-        }
-
-        return { text: responseText, options };
-    };
-
-    const handleSend = (textOverride) => {
+    const handleSend = async (textOverride) => {
         const textToSend = typeof textOverride === 'string' ? textOverride : input;
 
         // Handle Navigation Commands
@@ -132,14 +68,46 @@ export default function SupportBot() {
         setMessages(prev => [...prev, userMsg]);
         setInput('');
 
-        // Bot Response simulation
-        setTimeout(() => {
-            const { text, options } = generateBotResponse(textToSend);
+        try {
+            let token = '';
+            if (user) {
+                token = await user.getIdToken();
+            } else {
+                console.warn("SupportBot: No logged-in user found.");
+            }
+
+            const response = await fetch(`${BACKEND_URL}/api/chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    message: textToSend,
+                    role: isProfessor ? 'Professor' : 'Student'
+                })
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error("Chat API Error:", response.status, errorBody);
+                if (response.status === 401) throw new Error("Unauthorized: Please log in.");
+                throw new Error(`API Error (${response.status}): ${errorBody}`);
+            }
+
+            const data = await response.json();
+
             setMessages(prev => [
                 ...prev,
-                { id: Date.now() + 1, text, sender: 'bot', options }
+                { id: Date.now() + 1, text: data.text, sender: 'bot', options: data.options || [] }
             ]);
-        }, 600);
+        } catch (error) {
+            console.error("Bot Error:", error);
+            setMessages(prev => [
+                ...prev,
+                { id: Date.now() + 1, text: `Connection issue: ${error.message}. Please refresh and try again.`, sender: 'bot', options: [] }
+            ]);
+        }
     };
 
     const handleSubmit = (e) => {
@@ -181,38 +149,110 @@ export default function SupportBot() {
                     </div>
 
                     {/* Messages Area */}
-                    <div className="flex-1 overflow-y-auto p-4 bg-gray-50 flex flex-col gap-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                        {messages.map((msg) => (
-                            <div
-                                key={msg.id}
-                                className={`flex flex-col max-w-[90%] ${msg.sender === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
-                            >
+                    <div className="p-4 bg-gray-50 flex-1 overflow-y-auto flex flex-col gap-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                        {messages.map((msg) => {
+                            // Parse for [CHART: ...]
+                            const chartMatch = msg.text.match(/\[CHART:\s*({.*?})\]/);
+                            let chartData = null;
+                            let displayText = msg.text;
+
+                            if (chartMatch) {
+                                try {
+                                    chartData = JSON.parse(chartMatch[1]);
+                                    displayText = msg.text.replace(chartMatch[0], '').trim();
+                                } catch (e) {
+                                    console.error("Chart parsing error", e);
+                                }
+                            }
+
+                            return (
                                 <div
-                                    className={`p-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.sender === 'user'
+                                    key={msg.id}
+                                    className={`flex flex-col max-w-[90%] ${msg.sender === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
+                                >
+                                    <div
+                                        className={`p-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.sender === 'user'
                                             ? 'bg-gray-800 text-white rounded-br-none'
                                             : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
-                                        }`}
-                                >
-                                    {msg.text}
-                                </div>
+                                            }`}
+                                    >
+                                        <div className="whitespace-pre-wrap">{displayText}</div>
 
-                                {/* Render Options (Chips) if available */}
-                                {msg.sender === 'bot' && msg.options && msg.options.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                        {msg.options.map((opt, idx) => (
-                                            <button
-                                                key={idx}
-                                                onClick={() => handleSend(opt.value)}
-                                                className="text-xs font-medium px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors shadow-sm"
-                                            >
-                                                {opt.label}
-                                            </button>
-                                        ))}
+                                        {/* CSS Bar Chart Rendering */}
+                                        {chartData && chartData.type === 'bar' && (
+                                            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                                <h4 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">{chartData.title || 'Data Overview'}</h4>
+                                                <div className="flex flex-col gap-2">
+                                                    {chartData.data.map((item, idx) => (
+                                                        <div key={idx} className="flex items-center gap-2">
+                                                            <div className="w-20 text-xs font-medium text-gray-600 truncate text-right">{item.label}</div>
+                                                            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                <div
+                                                                    className="h-full rounded-full transition-all duration-500 ease-out"
+                                                                    style={{
+                                                                        width: `${Math.min(item.value > 0 ? (item.value / Math.max(...chartData.data.map(d => d.value))) * 100 : 0, 100)}%`,
+                                                                        backgroundColor: item.color || BRAND.primary
+                                                                    }}
+                                                                ></div>
+                                                            </div>
+                                                            <div className="w-6 text-xs font-bold text-gray-700 text-right">{item.value}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        ))}
+
+                                    {/* Render Options (Chips) */}
+                                    {msg.sender === 'bot' && msg.options && msg.options.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            {msg.options.map((opt, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    onClick={() => handleSend(opt.value)}
+                                                    className="text-xs font-medium px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors shadow-sm"
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                         <div ref={messagesEndRef} />
+                    </div>
+
+                    {/* Quick Actions Bar */}
+                    <div className="p-2 bg-white border-t border-gray-100 flex gap-2 overflow-x-auto scrollbar-hide">
+                        {isProfessor ? (
+                            <>
+                                <button
+                                    onClick={() => handleSend("Review attendance")}
+                                    className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                                >
+                                    🔍 Review
+                                </button>
+                                <button
+                                    onClick={() => handleSend("Give me a report for today")}
+                                    className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
+                                >
+                                    📊 Daily Report
+                                </button>
+                                <button
+                                    onClick={() => handleSend("Do I have any pending approvals?")}
+                                    className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-colors"
+                                >
+                                    ⏳ Pending Approvals
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button onClick={() => handleSend("Show me my timetable")} className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">📅 Timetable</button>
+                                <button onClick={() => handleSend("How is my attendance?")} className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">✅ Attendance</button>
+                                <button onClick={() => handleSend("Open LMS Portal")} className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-colors">📚 LMS</button>
+                            </>
+                        )}
                     </div>
 
                     {/* Input Area */}

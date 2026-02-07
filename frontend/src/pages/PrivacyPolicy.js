@@ -1,5 +1,4 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 
 const BRAND = {
   primary: '#0F9D78',
@@ -9,7 +8,6 @@ const BRAND = {
 };
 
 export default function PrivacyPolicy() {
-  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-[#f8faf5] px-4 sm:px-6 py-10">
       <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-gray-200 shadow-sm p-8">

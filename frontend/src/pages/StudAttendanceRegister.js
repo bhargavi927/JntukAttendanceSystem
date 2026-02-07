@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { getAuth } from 'firebase/auth';
-import StudentFooter from '../components/StudentFooter';
 import { fetchStudentProfile } from '../utils/fetchStudentProfile';
 import { BACKEND_URL } from '../config';
 
@@ -30,10 +29,11 @@ export default function AttendanceRegisterDetails() {
   const [subjects, setSubjects] = React.useState([]);
   const [selectedSubject, setSelectedSubject] = React.useState('');
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
+  const [_error, setError] = React.useState('');
 
   // Store all submissions: { [subjectName]: [submissions...] }
   const [attendanceMap, setAttendanceMap] = React.useState({});
+  const [predictionData, setPredictionData] = React.useState(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -126,6 +126,20 @@ export default function AttendanceRegisterDetails() {
           setSelectedSubject(prev => combined.includes(prev) ? prev : combined[0]);
         } else {
           setSubjects([]);
+        }
+
+        // 6. Fetch Attendance Prediction
+        try {
+          const token = await user.getIdToken();
+          const predRes = await fetch(`${API_BASE}/api/attendance/prediction`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (predRes.ok) {
+            const predJson = await predRes.json();
+            setPredictionData(predJson);
+          }
+        } catch (e) {
+          console.error("Failed to fetch prediction", e);
         }
 
         setLoading(false);
@@ -277,6 +291,24 @@ export default function AttendanceRegisterDetails() {
                         </div>
                       </div>
                       <div className="text-[10px] text-gray-400 mt-1">* Calculated on attended classes</div>
+
+                      {/* Prediction Section - Injected */}
+                      {predictionData && predictionData.subjects && (
+                        (() => {
+                          const subjPred = predictionData.subjects.find(s => s.subject === selectedSubject);
+                          if (subjPred) {
+                            const risk = subjPred.ml?.risk || subjPred.rule?.risk || 'Unknown';
+                            const prob = subjPred.ml?.prob ? `(${(subjPred.ml.prob * 100).toFixed(0)}% Prob)` : '';
+                            const color = risk === 'High' ? 'text-red-600' : (risk === 'Medium' ? 'text-yellow-600' : 'text-emerald-600');
+                            return (
+                              <div className={`mt-2 text-xs font-bold ${color}`}>
+                                Prediction: {risk} Risk {prob}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()
+                      )}
                     </div>
 
                   </div>

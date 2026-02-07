@@ -64,3 +64,40 @@ A centralized repository for academic resources.
 -   **Offline Mode**: Caching attendance when network is poor and syncing later.
 -   **Advanced Analytics**: predicting student dropout risk based on attendance patterns.
 -   **Push Notifications**: Alerts for class starts and low attendance warnings.
+
+## 6. Project Folder Structure (Current)
+
+```text
+/Attendance System
+│── PROJECT_THEORY.md         # Architecture documentation
+│── ml_service/               # Python ML Engine
+│   ├── train.py              # Logistic Regression Training Script
+│   ├── predict.py            # Prediction Inference Script
+│   └── model.pkl             # Trained Model Artifact
+│
+│── backend/
+│   ├── src/
+│   │   ├── config/           # DB & API Configurations
+│   │   ├── middleware/       # Auth & Validation
+│   │   ├── routes/           # API Endpoints
+│   │   │   ├── attendancePrediction.js  # New Prediction API
+│   │   │   ├── attendancePermissions.js # Permissions logic
+│   │   │   ├── chatRoutes.js            # Chatbot logic
+│   │   │   └── ...
+│   │   ├── services/         # External Integrations (AI)
+│   │   ├── utils/            # Helpers (ML Adapter, Prediction Rules)
+│   │   └── index.js          # App Entry Point
+│   └── package.json
+│
+│── frontend/
+│   ├── src/
+│   │   ├── components/       # Reusable UI (Nav, Cards)
+│   │   ├── contexts/         # Auth State Management
+│   │   ├── pages/            # View Controllers (ProfHome, StudHome)
+│   │   │   ├── StudAttendanceRegister.js  # Student View
+│   │   │   └── ...
+│   │   ├── utils/            # Frontend Helpers
+│   │   ├── App.js            # Main Router
+│   │   └── firebase.js       # Firebase SDK Init
+│   └── package.json
+```

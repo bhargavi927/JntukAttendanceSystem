@@ -2,7 +2,6 @@ import React from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { auth, upsertUserProfile } from '../firebase';
 import { useLocation } from 'react-router-dom';
-import StudentFooter from '../components/StudentFooter';
 import { BACKEND_URL } from '../config';
 
 

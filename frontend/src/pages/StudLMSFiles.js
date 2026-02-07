@@ -1,7 +1,6 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { getAuth } from "firebase/auth";
-import StudentFooter from '../components/StudentFooter';
 import { fetchStudentProfile } from '../utils/fetchStudentProfile';
 import { BACKEND_URL } from "../config";
 // import { supabase } from '../supabase.js'; // Removed direct access
@@ -13,7 +12,6 @@ const BRAND = {
 
 export default function StudLMSFiles() {
   const [searchTerm, setSearchTerm] = React.useState("");
-  const navigate = useNavigate();
   const location = useLocation();
 
   // Reg No, program, year, and subjects

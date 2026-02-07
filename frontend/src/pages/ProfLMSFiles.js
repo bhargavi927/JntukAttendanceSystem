@@ -37,7 +37,7 @@ export default function ProfLMSFiles() {
   });
   const [lmsError, setLmsError] = useState('');
   // Remember last context
-  const [lastLmsContext, setLastLmsContext] = useState({
+  const [_lastLmsContext, setLastLmsContext] = useState({
     program: '',
     branch: '',
     year: '',
@@ -184,9 +184,9 @@ export default function ProfLMSFiles() {
       prev.map((mat) =>
         mat.id === id
           ? {
-              ...mat,
-              status: mat.status === 'Public' ? 'Private' : 'Public',
-            }
+            ...mat,
+            status: mat.status === 'Public' ? 'Private' : 'Public',
+          }
           : mat
       )
     );

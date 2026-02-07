@@ -55,6 +55,8 @@ async function start() {
   const { default: timetableRoutes } = await import('./routes/timetable.js');
   const { default: lmsDriveFolderRoutes } = await import('./routes/lmsDriveFolder.js');
   const { default: lmsSubjectRoutes } = await import('./routes/lmsSubjectRoutes.js');
+  const { default: chatRoutes } = await import('./routes/chatRoutes.js');
+  const { default: attendancePredictionRoutes } = await import('./routes/attendancePrediction.js');
   console.log('[index.js] Routes imported');
 
   app.use('/api/professor-profile', professorProfileRoutes);
@@ -64,6 +66,8 @@ async function start() {
   app.use('/api/timetable', timetableRoutes);
   app.use('/api/lms', lmsSubjectRoutes);
   app.use('/api/lms', lmsDriveFolderRoutes);
+  app.use('/api/chat', chatRoutes);
+  app.use('/api/attendance-prediction', attendancePredictionRoutes);
   // app.use('/api/debug', debugAuthRoutes); // Temporary removed
   console.log('[index.js] Routes mounted');
 

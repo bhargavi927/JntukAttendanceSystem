@@ -1,95 +1,124 @@
-import * as faceapi from 'face-api.js';
-import { Canvas, Image, ImageData, createCanvas, loadImage } from 'canvas';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import ModelClient, { isUnexpected } from "@azure-rest/ai-inference";
+import { AzureKeyCredential } from "@azure/core-auth";
+import { NEUROSTACK_ASSISTANT_PROMPT } from "../config/assistantPrompt.js";
 
-// --- CONFIGURE FACE-API FOR NODE.JS ---
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+const modelName = "gpt-4o-mini";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Path to models (we downloaded them to backend/models)
-const MODELS_PATH = path.join(__dirname, '../../models');
-
-let modelsLoaded = false;
-
-async function loadModels() {
-    if (modelsLoaded) return;
+export const generateAIResponse = async (userMessage, role, contextData = {}) => {
     try {
-        console.log('[AI Service] Loading models from:', MODELS_PATH);
-        await faceapi.nets.ssdMobilenetv1.loadFromDisk(MODELS_PATH);
-        await faceapi.nets.faceLandmark68Net.loadFromDisk(MODELS_PATH);
-        await faceapi.nets.faceRecognitionNet.loadFromDisk(MODELS_PATH);
-        modelsLoaded = true;
-        console.log('[AI Service] Models loaded successfully');
+        const token = process.env["GITHUB_TOKEN"];
+        const endpoint = "https://models.github.ai/inference";
+
+        if (!token) {
+            console.error("GITHUB_TOKEN is missing.");
+            return {
+                text: "My neural link is broken (Missing Token). Please ask admin to check configuration.",
+                options: []
+            };
+        }
+
+        const client = ModelClient(endpoint, new AzureKeyCredential(token));
+
+        // Construct System Prompt with Context
+        let systemPrompt = `${NEUROSTACK_ASSISTANT_PROMPT}\nUser Role: ${role}\n`;
+
+        if (contextData && Object.keys(contextData).length > 0) {
+            systemPrompt += `\n[Current Context Data]\n`;
+            if (contextData.name) systemPrompt += `Name: ${contextData.name}\n`;
+
+            // Student Context
+            if (contextData.attendance) systemPrompt += `Attendance: ${contextData.attendance}\n`;
+            if (contextData.today) systemPrompt += `Today is: ${contextData.today}\n`;
+            if (contextData.timetable) systemPrompt += `Timetable: ${JSON.stringify(contextData.timetable)}\n`;
+            if (contextData.subjects) systemPrompt += `Subjects: ${JSON.stringify(contextData.subjects)}\n`;
+
+            // Professor Context
+            if (contextData.active_classes) systemPrompt += `Active Classes: ${JSON.stringify(contextData.active_classes)}\n`;
+            if (contextData.pending_approvals) systemPrompt += `Pending Approvals: ${contextData.pending_approvals}\n`;
+            if (contextData.analytics) systemPrompt += `Class Analytics: ${contextData.analytics}\n`;
+            if (contextData.role === 'Professor' && contextData.timetable) systemPrompt += `Today's Schedule: ${JSON.stringify(contextData.timetable)}\n`;
+
+            // Generic Profile
+            if (contextData.profile) systemPrompt += `Profile: ${JSON.stringify(contextData.profile)}\n`;
+
+            systemPrompt += `[End Context]\n`;
+        }
+
+        // Timeout Promise
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Request timed out")), 10000)
+        );
+
+        const responsePromise = client.path("/chat/completions").post({
+            body: {
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userMessage }
+                ],
+                temperature: 0.7,
+                top_p: 1.0,
+                max_tokens: 1000,
+                model: modelName
+            }
+        });
+
+        // Race between response and timeout
+        const response = await Promise.race([responsePromise, timeout]);
+
+        if (isUnexpected(response)) {
+            console.error("AI API Error:", response.body.error);
+            throw new Error(response.body.error.message || "Unknown API Error");
+        }
+
+        const text = response.body.choices[0].message.content;
+
+        // Generate Options (Simplistic Logic)
+        let options = [];
+        const lowerText = text.toLowerCase();
+
+        // Student Options
+        if (role === 'Student') {
+            if (lowerText.includes("attendance")) options.push({ label: "Check Attendance", value: "How is my attendance?" });
+            if (lowerText.includes("lms") || lowerText.includes("notes")) options.push({ label: "LMS Materials", value: "Where are my LMS notes?" });
+        }
+
+        // Professor Options
+        if (role === 'Professor') {
+            if (lowerText.includes("report")) options.push({ label: "Full Report", value: "Give me a full class report" });
+            if (lowerText.includes("pending")) options.push({ label: "Review Pending", value: "Review pending approvals" });
+        }
+
+        return { text, options };
+
     } catch (error) {
-        console.error('[AI Service] Failed to load models:', error);
-        throw error;
-    }
-}
+        console.error("AI Generation Critical Failure:", error);
 
-/**
- * Verifies if the face in queryImageUrl matches the face in referenceImageUrl.
- * @param {string} referenceImageUrl - URL of the ground truth (Profile Pic)
- * @param {string} queryImageUrl - URL of the new photo (Selfie)
- * @returns {Promise<{ match: boolean, distance: number, score: number, error?: string }>}
- */
-export async function verifyFace(referenceImageUrl, queryImageUrl) {
-    try {
-        await loadModels();
-
-        // 1. Fetch Images
-        const [refImg, queryImg] = await Promise.all([
-            loadImage(referenceImageUrl),
-            loadImage(queryImageUrl)
-        ]);
-
-        // 2. Detect Faces (Single Face)
-        // Using SSD Mobilenet V1 for better accuracy than TinyFace
-        const refDetection = await faceapi.detectSingleFace(refImg).withFaceLandmarks().withFaceDescriptor();
-        const queryDetection = await faceapi.detectSingleFace(queryImg).withFaceLandmarks().withFaceDescriptor();
-
-        if (!refDetection) {
-            return { match: false, distance: 1, score: 0, error: "No face detected in profile picture" };
+        // Fallback Options based on Role
+        let fallbackOptions = [];
+        if (role === 'Professor') {
+            fallbackOptions = [
+                { label: "Review Pending", value: "Review pending approvals" },
+                { label: "Full Report", value: "Give me a full class report" }
+            ];
+        } else {
+            fallbackOptions = [
+                { label: "Check Attendance", value: "How is my attendance?" },
+                { label: "LMS Materials", value: "Where are my LMS notes?" }
+            ];
         }
-        if (!queryDetection) {
-            return { match: false, distance: 1, score: 0, error: "No face detected in attendance selfie" };
-        }
-
-        // 3. Compare Descriptors (Euclidean Distance)
-        const distance = faceapi.euclideanDistance(refDetection.descriptor, queryDetection.descriptor);
-
-        // Threshold: typically 0.6 is a good match. Lower is better.
-        // We convert distance to a "Score" (0 to 100)
-        // If dist = 0, score = 100. If dist = 0.6, score ~ 40 (Match). If dist > 0.6, score < 40 (No Match).
-        // Let's invert it: Score = max(0, (1 - distance) * 100) ? No, that's linear.
-        // Common formula: 
-        const match = distance < 0.6;
-
-        // Custom Score Calculation mapped to 0-100%
-        // distance 0.0 -> 100%
-        // distance 0.4 -> 80%
-        // distance 0.6 -> 60% (Threshold)
-        // distance 1.0 -> 0%
-        let score = Math.max(0, 100 - (distance * 100)); // Simple linear for UI display
-
-        // Refine score for display "Accuracy"
-        // If match, boost it slightly to look confident, if mismatch dump it.
-        // Actually, let's just return the raw calculation for transparency.
 
         return {
-            match,
-            distance: distance,
-            score: Math.round(score),
-            details: {
-                refBox: refDetection.detection.box,
-                queryBox: queryDetection.detection.box
-            }
+            text: "I'm having trouble connecting to the AI brain right now (Network Timeout). But I can still help you with these actions:",
+            options: fallbackOptions
         };
-
-    } catch (error) {
-        console.error('[AI Service] precise error:', error);
-        return { match: false, distance: 0, score: 0, error: "AI Processing Failed: " + error.message };
     }
-}
+};
+
+/**
+ * [DEPRECATED] Verifies if the face in the probe buffer matches the reference buffer.
+ * Kept as stub for backward compatibility if imported elsewhere, but logic is disabled.
+ */
+export const verifyFace = async (referenceBuffer, probeBuffer) => {
+    // Logic removed as per user request
+    return { match: true, score: 0, details: "AI Verification Disabled" };
+};

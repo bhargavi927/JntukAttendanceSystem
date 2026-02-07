@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import homepageImage from '../jntukimages/homepage.png';
-import StudentFooter from '../components/StudentFooter';
 import SupportBot from '../components/SupportBot';
 
 const BRAND = {
